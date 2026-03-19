@@ -249,7 +249,12 @@ export default function IDEPane({paneId,liveConfigs,compilersLoading,compilersEr
     if(isRunning) return;
     setIsRunning(true); setResult(null); setOutputTab('output');
     try{
-      const res=await compileAndRun(selectedCompiler,files,stdin,buildFlagString());
+      // Always put the active file first — it becomes the entry point Wandbox compiles
+      const activeFirst = [
+        ...files.filter(f => f.id === activeFileId),
+        ...files.filter(f => f.id !== activeFileId),
+      ];
+      const res=await compileAndRun(selectedCompiler,activeFirst,stdin,buildFlagString());
       setResult(res);
       if(res.errors.length>0) setOutputTab('errors');
       else if(res.warnings.length>0&&!res.stdout) setOutputTab('warnings');
