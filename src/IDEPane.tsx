@@ -19,7 +19,6 @@ import { FLAG_PRESETS, FLAGGABLE_LANGS, GROUP_LABELS, GROUP_ORDER, presetsForLan
 
 function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 
-// ─── Compiler lists ──────────────────────────────────────────────────────────
 const mkC = (name: string, displayName: string, language: string, version: string, isHead = false): WandboxCompiler =>
   ({ name, displayName, language, version, isHead });
 
@@ -75,7 +74,6 @@ const LUA_COMPILERS = [
   mkC('lua-5.4.6','Lua 5.4.6','Lua','5.4.6'), mkC('lua-5.3.6','Lua 5.3.6','Lua','5.3.6'),
 ];
 
-// ─── Default files ───────────────────────────────────────────────────────────
 const f = (id: string, name: string, content: string): CodeFile => ({ id, name, content });
 
 const DEFAULT_FILES: Record<SupportedLanguage, CodeFile[]> = {
@@ -114,7 +112,6 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   { id:'lua',        name:'Lua',        wandboxLanguage:'Lua',        defaultCompiler:'lua-5.4.6',        extension:'.lua',   prismLanguage:'lua',        compilers:LUA_COMPILERS,  defaultFiles:DEFAULT_FILES.lua },
 ];
 
-// ─── Flag pill component ─────────────────────────────────────────────────────
 function FlagPill({ flag, active, onToggle }: { flag: string; active: boolean; onToggle: () => void }) {
   return (
     <button
@@ -132,7 +129,6 @@ function FlagPill({ flag, active, onToggle }: { flag: string; active: boolean; o
   );
 }
 
-// ─── Props ────────────────────────────────────────────────────────────────────
 interface IDEPaneProps {
   paneId: string;
   liveConfigs: LanguageConfig[];
@@ -143,7 +139,6 @@ interface IDEPaneProps {
 
 type OutputTab = 'output' | 'errors' | 'warnings' | 'stdin';
 
-// ─── IDEPane ─────────────────────────────────────────────────────────────────
 export default function IDEPane({ paneId, liveConfigs, compilersLoading, compilersError, defaultLang = 'c' }: IDEPaneProps) {
   const initCfg = liveConfigs.find(l => l.id === defaultLang) ?? liveConfigs[0];
 
@@ -161,26 +156,21 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
   const [copied, setCopied]       = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [flagsOpen, setFlagsOpen] = useState(true);
-  const [tooltip, setTooltip]     = useState<string | null>(null);
 
-  // Compiler flags state
   const [flags, setFlags] = useState<CompilerFlags>({ active: new Set(['-Wall']), custom: '' });
-
   const isDragging = useRef(false);
 
-  const currentLang   = liveConfigs.find(l => l.id === selectedLangId) ?? liveConfigs[0];
-  const activeFile    = files.find(f => f.id === activeFileId) ?? files[0];
-  const showFlags     = FLAGGABLE_LANGS.includes(selectedLangId);
-  const langPresets   = presetsForLang(selectedLangId);
+  const currentLang = liveConfigs.find(l => l.id === selectedLangId) ?? liveConfigs[0];
+  const activeFile  = files.find(f => f.id === activeFileId) ?? files[0];
+  const showFlags   = FLAGGABLE_LANGS.includes(selectedLangId);
+  const langPresets = presetsForLang(selectedLangId);
 
-  // Build flag string from active set + custom
   const buildFlagString = () => {
     const parts = Array.from(flags.active);
     if (flags.custom.trim()) parts.push(flags.custom.trim());
     return parts.join(' ');
   };
 
-  // Toggle a flag, respecting exclusive groups
   const toggleFlag = (flag: string) => {
     const preset = FLAG_PRESETS.find(p => p.flag === flag);
     setFlags(prev => {
@@ -188,7 +178,6 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
       if (next.has(flag)) {
         next.delete(flag);
       } else {
-        // Remove other flags in the same exclusive group
         if (preset?.exclusive) {
           langPresets
             .filter(p => p.exclusive === preset.exclusive && p.flag !== flag)
@@ -200,14 +189,12 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
     });
   };
 
-  // Keep compiler valid after live fetch
   useEffect(() => {
     if (!currentLang.compilers.some(c => c.name === selectedCompiler)) {
       setSelectedCompiler(currentLang.compilers[0].name);
     }
   }, [currentLang, selectedCompiler]);
 
-  // Reset flags when switching languages
   const handleLangChange = (langId: SupportedLanguage) => {
     if (!confirm('Switching languages will reset your files. Continue?')) return;
     const cfg = liveConfigs.find(l => l.id === langId)!;
@@ -224,12 +211,10 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
     if (isRunning) return;
     setIsRunning(true);
     setResult(null);
-    // Auto-switch to errors tab if we had errors before; otherwise output
     setOutputTab('output');
     try {
       const res = await compileAndRun(selectedCompiler, files, stdin, buildFlagString());
       setResult(res);
-      // Auto-focus relevant tab
       if (res.errors.length > 0) setOutputTab('errors');
       else if (res.warnings.length > 0 && !res.stdout) setOutputTab('warnings');
       else setOutputTab('output');
@@ -264,7 +249,6 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
     navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
   };
 
-  // Drag-to-resize bottom panel (vertical)
   const onBottomDrag = (e: React.MouseEvent) => {
     e.preventDefault();
     isDragging.current = true;
@@ -278,21 +262,18 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
     document.addEventListener('mouseup', onUp);
   };
 
-  // Output tab badge counts
-  const warnCount  = result?.warnings.length ?? 0;
-  const errCount   = result?.errors.length ?? 0;
+  const warnCount = result?.warnings.length ?? 0;
+  const errCount  = result?.errors.length ?? 0;
 
   return (
     <div className="flex h-full min-w-0 overflow-hidden bg-[#0d1117]" style={{ fontFamily: '"Geist", sans-serif' }}>
 
-      {/* ── Sidebar ── */}
       <AnimatePresence initial={false}>
         {sidebarOpen && (
           <motion.aside key="sb" initial={{ width:0, opacity:0 }} animate={{ width:230, opacity:1 }} exit={{ width:0, opacity:0 }}
             transition={{ type:'spring', stiffness:320, damping:32 }}
             className="shrink-0 border-r border-[#21262d] bg-[#0a0e13] flex flex-col overflow-hidden">
 
-            {/* Language */}
             <div className="px-3 pt-3 pb-2 border-b border-[#21262d]">
               <label className="block text-[10px] font-semibold text-[#484f58] uppercase tracking-widest mb-1.5">Language</label>
               <select value={selectedLangId} onChange={e => handleLangChange(e.target.value as SupportedLanguage)}
@@ -301,7 +282,6 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
               </select>
             </div>
 
-            {/* Files */}
             <div className="flex-1 overflow-y-auto px-2 py-1 min-h-0 border-b border-[#21262d]">
               <div className="flex items-center justify-between px-2 py-1.5">
                 <span className="text-[10px] font-semibold text-[#484f58] uppercase tracking-widest">Files</span>
@@ -333,7 +313,7 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
                       <FileCode className={cn('w-3.5 h-3.5 shrink-0', activeFileId===file.id ? 'text-indigo-400' : 'text-[#484f58]')} />
                       <span className="truncate font-medium">{file.name}</span>
                     </div>
-                    {files.length>1 && (
+                    {files.length > 1 && (
                       <button onClick={e => { e.stopPropagation(); deleteFile(file.id); }}
                         className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-900/40 text-red-400 transition-all shrink-0">
                         <Trash2 className="w-3 h-3" />
@@ -344,7 +324,6 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
               </div>
             </div>
 
-            {/* Compiler */}
             <div className="px-3 py-2 border-b border-[#21262d]">
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-[10px] font-semibold text-[#484f58] uppercase tracking-widest">Compiler</label>
@@ -361,7 +340,6 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
               )}
             </div>
 
-            {/* ── Compiler Flags (C/C++ only) ── */}
             {showFlags && (
               <div className="border-b border-[#21262d] flex flex-col min-h-0">
                 <button onClick={() => setFlagsOpen(o => !o)}
@@ -369,38 +347,26 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
                   <span>Compiler Flags</span>
                   {flagsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                 </button>
-
                 <AnimatePresence initial={false}>
                   {flagsOpen && (
                     <motion.div initial={{ height:0, opacity:0 }} animate={{ height:'auto', opacity:1 }} exit={{ height:0, opacity:0 }}
                       transition={{ duration:0.2 }} className="overflow-hidden">
                       <div className="px-3 pb-3 space-y-3 overflow-y-auto max-h-64">
-
-                        {/* Active flags preview */}
                         {flags.active.size > 0 && (
                           <div className="font-mono text-[10px] text-emerald-400/80 bg-[#0d1117] rounded px-2 py-1 break-all leading-relaxed border border-[#21262d]">
                             {Array.from(flags.active).join(' ')}{flags.custom ? ' ' + flags.custom : ''}
                           </div>
                         )}
-
-                        {/* Groups */}
                         {GROUP_ORDER.map(groupId => {
                           const groupPresets = langPresets.filter(p => p.group === groupId);
                           if (!groupPresets.length) return null;
                           return (
                             <div key={groupId}>
-                              <div className="text-[9px] font-bold text-[#484f58] uppercase tracking-widest mb-1.5">
-                                {GROUP_LABELS[groupId]}
-                              </div>
+                              <div className="text-[9px] font-bold text-[#484f58] uppercase tracking-widest mb-1.5">{GROUP_LABELS[groupId]}</div>
                               <div className="flex flex-wrap gap-1">
                                 {groupPresets.map(p => (
                                   <div key={p.flag} className="relative group/tip">
-                                    <FlagPill
-                                      flag={p.flag}
-                                      active={flags.active.has(p.flag)}
-                                      onToggle={() => toggleFlag(p.flag)}
-                                    />
-                                    {/* Tooltip */}
+                                    <FlagPill flag={p.flag} active={flags.active.has(p.flag)} onToggle={() => toggleFlag(p.flag)} />
                                     <div className="absolute left-0 bottom-full mb-1.5 z-50 hidden group-hover/tip:block w-48 bg-[#1c2128] border border-[#30363d] rounded-md px-2.5 py-2 text-[10px] text-[#c9d1d9] shadow-xl leading-relaxed pointer-events-none">
                                       <span className="font-mono text-indigo-300 block mb-0.5">{p.flag}</span>
                                       {p.description}
@@ -411,16 +377,11 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
                             </div>
                           );
                         })}
-
-                        {/* Custom flags input */}
                         <div>
                           <div className="text-[9px] font-bold text-[#484f58] uppercase tracking-widest mb-1.5">Custom flags</div>
-                          <input
-                            value={flags.custom}
-                            onChange={e => setFlags(p => ({ ...p, custom: e.target.value }))}
+                          <input value={flags.custom} onChange={e => setFlags(p => ({ ...p, custom: e.target.value }))}
                             placeholder="-Wformat -DDEBUG …"
-                            className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-[11px] font-mono text-[#c9d1d9] placeholder-[#484f58] outline-none focus:ring-1 focus:ring-indigo-500"
-                          />
+                            className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-[11px] font-mono text-[#c9d1d9] placeholder-[#484f58] outline-none focus:ring-1 focus:ring-indigo-500" />
                         </div>
                       </div>
                     </motion.div>
@@ -429,7 +390,6 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
               </div>
             )}
 
-            {/* Stdin preview / quick note */}
             <div className="px-3 py-2 mt-auto">
               <div className="text-[9px] text-[#484f58] flex items-center gap-1">
                 <Info className="w-2.5 h-2.5" />
@@ -440,10 +400,7 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
         )}
       </AnimatePresence>
 
-      {/* ── Main column ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-
-        {/* Topbar */}
         <header className="h-10 border-b border-[#21262d] bg-[#0a0e13] flex items-center justify-between px-2.5 shrink-0 gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <button onClick={() => setSidebarOpen(o => !o)}
@@ -456,7 +413,6 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
             <span className="text-[10px] text-[#8b949e] bg-[#161b22] px-1.5 py-0.5 rounded border border-[#30363d] shrink-0">
               {currentLang.name}
             </span>
-            {/* Active flags badge */}
             {showFlags && flags.active.size > 0 && (
               <span className="text-[9px] font-mono text-indigo-400/70 truncate max-w-[120px] hidden sm:block" title={Array.from(flags.active).join(' ')}>
                 {Array.from(flags.active).join(' ')}
@@ -466,66 +422,54 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
           <button onClick={handleRun} disabled={isRunning}
             className={cn('flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition-all select-none shrink-0',
               isRunning ? 'bg-indigo-600/40 text-indigo-300 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-900/30')}>
-            {isRunning
-              ? <><Loader2 className="w-3 h-3 animate-spin" />Running…</>
-              : <><Play className="w-3 h-3 fill-current" />Run</>}
+            {isRunning ? <><Loader2 className="w-3 h-3 animate-spin" />Running…</> : <><Play className="w-3 h-3 fill-current" />Run</>}
           </button>
         </header>
 
-        {/* Editor */}
         <div className="overflow-auto bg-[#0d1117] custom-scrollbar" style={{ height:`${100-bottomPct}%` }}>
           <Editor
             value={activeFile.content}
             onValueChange={c => setFiles(p => p.map(f => f.id===activeFileId ? {...f,content:c} : f))}
-            highlight={code => highlight(code, languages[currentLang.prismLanguage] ?? languages.clike, currentLang.prismLanguage)}
+            highlight={code => {
+              const grammar = languages[currentLang.prismLanguage] ?? languages.clike;
+              return highlight(code, grammar, currentLang.prismLanguage);
+            }}
             padding={16}
             className="min-h-full outline-none"
             style={{ fontFamily:'"JetBrains Mono", monospace', fontSize:13, lineHeight:1.7 }}
           />
         </div>
 
-        {/* Drag handle */}
         <div onMouseDown={onBottomDrag}
           className="h-1 border-y border-[#21262d] hover:bg-indigo-600/30 cursor-row-resize transition-colors flex items-center justify-center group shrink-0 bg-[#0d1117]">
           <div className="w-8 h-0.5 rounded-full bg-[#30363d] group-hover:bg-indigo-400 transition-colors" />
         </div>
 
-        {/* ── Bottom panel ── */}
         <div className="flex flex-col shrink-0 bg-[#0a0e13] overflow-hidden" style={{ height:`${bottomPct}%` }}>
-
-          {/* Tab bar */}
           <div className="h-8 border-b border-[#21262d] flex items-center px-2 gap-1 shrink-0">
-
-            {/* stdin tab */}
             <button onClick={() => setOutputTab('output')}
               className={cn('flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all',
                 outputTab==='output' ? 'bg-[#161b22] text-[#c9d1d9] border border-[#30363d]' : 'text-[#8b949e] hover:text-[#c9d1d9]')}>
               <Terminal className="w-3 h-3" />stdout
             </button>
-
             <button onClick={() => setOutputTab('errors')}
               className={cn('flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all',
                 outputTab==='errors' ? 'bg-[#161b22] text-[#c9d1d9] border border-[#30363d]' : 'text-[#8b949e] hover:text-[#c9d1d9]')}>
               <X className="w-3 h-3" />errors
               {errCount > 0 && <span className="bg-red-600 text-white text-[9px] font-bold px-1 rounded-full min-w-[14px] text-center">{errCount}</span>}
             </button>
-
             <button onClick={() => setOutputTab('warnings')}
               className={cn('flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all',
                 outputTab==='warnings' ? 'bg-[#161b22] text-[#c9d1d9] border border-[#30363d]' : 'text-[#8b949e] hover:text-[#c9d1d9]')}>
               <AlertTriangle className="w-3 h-3" />warnings
               {warnCount > 0 && <span className="bg-amber-600 text-white text-[9px] font-bold px-1 rounded-full min-w-[14px] text-center">{warnCount}</span>}
             </button>
-
             <span className="text-[#30363d] text-xs mx-0.5">|</span>
-
             <button onClick={() => setOutputTab('stdin')}
               className={cn('flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all',
                 outputTab==='stdin' ? 'bg-[#161b22] text-[#c9d1d9] border border-[#30363d]' : 'text-[#8b949e] hover:text-[#c9d1d9]')}>
               <Terminal className="w-3 h-3" />stdin
             </button>
-
-            {/* Right meta */}
             <div className="ml-auto flex items-center gap-2">
               {result && (
                 <>
@@ -551,13 +495,9 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
             </div>
           </div>
 
-          {/* Panel body */}
           <div className="flex-1 overflow-auto custom-scrollbar min-h-0">
-
-            {/* stdout */}
             {outputTab === 'output' && (
               <div className="h-full flex flex-col">
-                {/* Terminal prompt header */}
                 <div className="px-4 pt-2.5 pb-1 flex items-center gap-2 text-[10px] text-[#484f58] font-mono border-b border-[#21262d] shrink-0">
                   <span className="text-emerald-500">$</span>
                   <span>{selectedCompiler} {Array.from(flags.active).join(' ')}</span>
@@ -583,9 +523,7 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
                             ? <span className="text-[#484f58]">(no output)</span>
                             : <span className="text-red-400">Program exited with code {result.exitCode} — check Errors tab</span>
                         }
-                        {result.stderr && (
-                          <pre className="mt-2 text-red-400 whitespace-pre-wrap">{result.stderr}</pre>
-                        )}
+                        {result.stderr && <pre className="mt-2 text-red-400 whitespace-pre-wrap">{result.stderr}</pre>}
                       </motion.div>
                     </AnimatePresence>
                   )}
@@ -593,7 +531,6 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
               </div>
             )}
 
-            {/* Errors */}
             {outputTab === 'errors' && (
               <div className="px-4 py-2.5 text-xs space-y-2" style={{ fontFamily:'"JetBrains Mono", monospace', lineHeight:1.6 }}>
                 {!result && <p className="text-[#484f58] text-[11px]">Run your code to see errors.</p>}
@@ -611,7 +548,6 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
               </div>
             )}
 
-            {/* Warnings */}
             {outputTab === 'warnings' && (
               <div className="px-4 py-2.5 text-xs space-y-2" style={{ fontFamily:'"JetBrains Mono", monospace', lineHeight:1.6 }}>
                 {!result && <p className="text-[#484f58] text-[11px]">Run your code to see warnings.</p>}
@@ -626,14 +562,9 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
                     {w}
                   </motion.div>
                 ))}
-                {!showFlags && result && result.warnings.length === 0 && (
-                  <p className="text-[9px] text-[#484f58] mt-2">Tip: switch to C or C++ and enable -Wall to see warnings</p>
-                )}
               </div>
             )}
 
-
-            {/* stdin */}
             {outputTab === 'stdin' && (
               <textarea
                 value={stdin}
@@ -644,7 +575,6 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
                 style={{ fontFamily:'"JetBrains Mono", monospace', lineHeight:1.7 }}
               />
             )}
-
           </div>
         </div>
       </div>

@@ -1,6 +1,4 @@
-import Prism from 'prismjs';
-(window as any).Prism = Prism;
-
+import './prism-setup';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
