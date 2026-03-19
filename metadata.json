@@ -1,0 +1,5 @@
+{
+  "name": "PolyCode: Multi-Language IDE",
+  "description": "A powerful multi-file, multi-language IDE supporting C, C++, Python, Java, JavaScript, Rust, and Go using the Piston API.",
+  "requestFramePermissions": []
+}
