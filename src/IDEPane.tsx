@@ -3,6 +3,7 @@ import {
   Play, Plus, Trash2, FileCode, Terminal, Cpu,
   Loader2, X, AlertTriangle, Check, Copy, Clock,
   ChevronRight, Upload, Settings, FolderOpen, Menu,
+  CornerDownLeft, Square, Zap,
 } from 'lucide-react';
 import Editor from 'react-simple-code-editor';
 import { clsx, type ClassValue } from 'clsx';
@@ -204,6 +205,15 @@ export default function IDEPane({paneId,liveConfigs,compilersLoading,compilersEr
   const isDraggingBottom  = useRef(false);
   const fileInputRef      = useRef<HTMLInputElement>(null);
 
+  // ── Interactive terminal state ──────────────────────────────────────────────
+  const [interactiveMode,  setInteractiveMode]  = useState(false);
+  const [iInputs,          setIInputs]          = useState<string[]>([]);
+  const [iLines,           setILines]           = useState<{type:'out'|'in'|'err';text:string}[]>([]);
+  const [iPrevStdout,      setIPrevStdout]      = useState('');
+  const [iCurrentInput,    setICurrentInput]    = useState('');
+  const [iDone,            setIDone]            = useState(false);
+  const terminalEndRef = useRef<HTMLDivElement>(null);
+
   const currentLang = liveConfigs.find(l=>l.id===selectedLangId)??liveConfigs[0];
   const activeFile  = files.find(f=>f.id===activeFileId)??files[0];
   const showFlags   = FLAGGABLE_LANGS.includes(selectedLangId);
@@ -264,6 +274,75 @@ export default function IDEPane({paneId,liveConfigs,compilersLoading,compilersEr
       setOutputTab('errors');
     }finally{setIsRunning(false);}
   },[isRunning,selectedCompiler,files,stdin,flags]);
+
+  // ── Interactive terminal functions ─────────────────────────────────────────
+  const getActiveFirst = () => [
+    ...files.filter(f=>f.id===activeFileId),
+    ...files.filter(f=>f.id!==activeFileId),
+  ];
+
+  const startInteractive = useCallback(async () => {
+    setInteractiveMode(true);
+    setIInputs([]);
+    setILines([]);
+    setIPrevStdout('');
+    setIDone(false);
+    setICurrentInput('');
+    setIsRunning(true);
+    try {
+      const res = await compileAndRun(selectedCompiler, getActiveFirst(), '', buildFlagString());
+      if (res.errors.length > 0) {
+        setILines([{type:'err', text: res.errors.join('\n')}]);
+        setIDone(true);
+      } else {
+        if (res.stdout) setILines([{type:'out', text: res.stdout}]);
+        setIPrevStdout(res.stdout);
+        if (res.exitCode === 0 && !res.stdout) setIDone(true);
+      }
+    } catch(e) {
+      setILines([{type:'err', text: String(e)}]);
+      setIDone(true);
+    } finally { setIsRunning(false); }
+  }, [selectedCompiler, files, activeFileId, flags]);
+
+  const sendInteractiveInput = useCallback(async () => {
+    const val = iCurrentInput;
+    if (!val.trim() && !iDone) return;
+    setICurrentInput('');
+    const newInputs = [...iInputs, val];
+    setIInputs(newInputs);
+    setILines(prev => [...prev, {type:'in', text: val}]);
+    setIsRunning(true);
+    try {
+      const allStdin = newInputs.join('\n');
+      const res = await compileAndRun(selectedCompiler, getActiveFirst(), allStdin, buildFlagString());
+      const delta = res.stdout.slice(iPrevStdout.length);
+      if (delta) {
+        setILines(prev => [...prev, {type:'out', text: delta}]);
+        setIPrevStdout(res.stdout);
+      }
+      if (res.stderr) setILines(prev => [...prev, {type:'err', text: res.stderr}]);
+      // Program done when it exits cleanly or stdout stopped growing
+      if (res.exitCode !== 0 || (!delta && res.exitCode === 0)) setIDone(true);
+    } catch(e) {
+      setILines(prev => [...prev, {type:'err', text: String(e)}]);
+      setIDone(true);
+    } finally { setIsRunning(false); }
+  }, [iCurrentInput, iInputs, iPrevStdout, selectedCompiler, files, activeFileId, flags]);
+
+  const stopInteractive = () => {
+    setInteractiveMode(false);
+    setILines([]);
+    setIInputs([]);
+    setIPrevStdout('');
+    setIDone(false);
+    setICurrentInput('');
+  };
+
+  // Auto-scroll terminal to bottom
+  useEffect(() => {
+    terminalEndRef.current?.scrollIntoView({behavior:'smooth'});
+  }, [iLines, isRunning]);
 
   const handleFileImport=(e:React.ChangeEvent<HTMLInputElement>)=>{
     Array.from(e.target.files??[]).forEach(file=>{
@@ -637,8 +716,10 @@ export default function IDEPane({paneId,liveConfigs,compilersLoading,compilersEr
 
         {/* ── Output panel ── */}
         <div className="flex flex-col shrink-0 bg-[#0a0e13] overflow-hidden" style={{height:`${bottomPct}%`}}>
+
+          {/* Tab bar */}
           <div className="h-8 border-b border-[#21262d] flex items-center px-2 gap-1 shrink-0">
-            {(['output','errors','warnings'] as OutputTab[]).map(tab=>(
+            {!interactiveMode && (['output','errors','warnings'] as OutputTab[]).map(tab=>(
               <button key={tab} onClick={()=>setOutputTab(tab)}
                 className={cn('flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all',
                   outputTab===tab?'bg-[#161b22] text-[#c9d1d9] border border-[#30363d]':'text-[#8b949e] hover:text-[#c9d1d9]')}>
@@ -650,8 +731,33 @@ export default function IDEPane({paneId,liveConfigs,compilersLoading,compilersEr
                 {tab==='warnings'&&warnCount>0&&<span className="bg-amber-600 text-white text-[9px] font-bold px-1 rounded-full">{warnCount}</span>}
               </button>
             ))}
+            {interactiveMode && (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-semibold">
+                  <Zap className="w-3 h-3"/>
+                  Interactive
+                </div>
+                {isRunning && <Loader2 className="w-3 h-3 animate-spin text-indigo-400"/>}
+                {iDone && <span className="text-[10px] text-[#484f58]">program exited</span>}
+              </div>
+            )}
             <div className="ml-auto flex items-center gap-2">
-              {result&&(
+              {/* Interactive mode toggle */}
+              {!interactiveMode ? (
+                <button onClick={startInteractive}
+                  title="Interactive mode — send inputs one at a time"
+                  className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium text-[#8b949e] hover:text-emerald-400 hover:bg-[#161b22] transition-all border border-transparent hover:border-[#30363d]">
+                  <Zap className="w-3 h-3"/>
+                  Interactive
+                </button>
+              ) : (
+                <button onClick={stopInteractive}
+                  className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium text-red-400 hover:bg-red-900/20 transition-all border border-red-900/40">
+                  <Square className="w-3 h-3 fill-current"/>
+                  Stop
+                </button>
+              )}
+              {!interactiveMode && result && (
                 <>
                   {result.elapsedMs!=null&&<span className="flex items-center gap-1 text-[10px] text-[#8b949e]"><Clock className="w-2.5 h-2.5"/>{result.elapsedMs}ms</span>}
                   <span className={cn('text-[10px] px-1.5 py-0.5 rounded font-semibold',result.exitCode===0?'bg-emerald-900/30 text-emerald-400':'bg-red-900/30 text-red-400')}>
@@ -667,55 +773,116 @@ export default function IDEPane({paneId,liveConfigs,compilersLoading,compilersEr
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto custom-scrollbar min-h-0">
-            {outputTab==='output'&&(
-              <div className="h-full flex flex-col">
-                <div className="px-4 pt-2 pb-1 flex items-center gap-2 text-[10px] text-[#484f58] font-mono border-b border-[#21262d] shrink-0">
-                  <span className="text-emerald-500">$</span>
-                  <span className="truncate">{selectedCompiler}{showFlags&&flags.active.size>0?' '+Array.from(flags.active).join(' '):''}</span>
-                </div>
-                <div className="flex-1 overflow-auto px-4 py-2.5 text-xs custom-scrollbar" style={{fontFamily:'"JetBrains Mono", monospace',lineHeight:1.7}}>
-                  {!result&&!isRunning&&(
-                    <div className="flex flex-col items-center justify-center h-full py-6 text-[#484f58] space-y-2">
-                      <Cpu className="w-7 h-7 opacity-20"/>
-                      <p className="text-[11px]">Click Run to execute</p>
-                    </div>
-                  )}
-                  {isRunning&&<div className="flex items-center gap-2 text-indigo-400"><Loader2 className="w-3 h-3 animate-spin"/>Compiling and running…</div>}
-                  {result&&(
-                    <AnimatePresence mode="wait">
-                      <motion.div key="out" initial={{opacity:0,y:3}} animate={{opacity:1,y:0}}>
-                        {result.stdout?<pre className="text-[#c9d1d9] whitespace-pre-wrap">{result.stdout}</pre>
-                          :result.exitCode===0?<span className="text-[#484f58]">(no output)</span>
-                          :<span className="text-red-400">Exited with code {result.exitCode} — check Errors tab</span>}
-                        {result.stderr&&<pre className="mt-2 text-red-400 whitespace-pre-wrap">{result.stderr}</pre>}
-                      </motion.div>
-                    </AnimatePresence>
-                  )}
-                </div>
-              </div>
-            )}
-            {outputTab==='errors'&&(
-              <div className="px-4 py-2.5 text-xs space-y-2" style={{fontFamily:'"JetBrains Mono", monospace',lineHeight:1.6}}>
-                {!result&&<p className="text-[#484f58] text-[11px]">Run your code to see errors.</p>}
-                {result&&result.errors.length===0&&<div className="flex items-center gap-2 text-emerald-400 py-4"><Check className="w-4 h-4"/>No errors 🎉</div>}
-                {result?.errors.map((err,i)=>(
-                  <motion.div key={i} initial={{opacity:0,x:-4}} animate={{opacity:1,x:0}} transition={{delay:i*0.04}}
-                    className="p-3 bg-red-900/15 border border-red-900/40 rounded-lg text-red-300 whitespace-pre-wrap text-[11px]">{err}</motion.div>
+          {/* ── Interactive Terminal ── */}
+          {interactiveMode ? (
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              {/* Terminal output */}
+              <div className="flex-1 overflow-auto px-4 py-3 custom-scrollbar" style={{fontFamily:'"JetBrains Mono", monospace',fontSize:12.5,lineHeight:1.7}}>
+                {iLines.length === 0 && isRunning && (
+                  <div className="flex items-center gap-2 text-indigo-400 text-xs">
+                    <Loader2 className="w-3 h-3 animate-spin"/>Starting program…
+                  </div>
+                )}
+                {iLines.map((line, i) => (
+                  <div key={i}>
+                    {line.type === 'in' ? (
+                      <div className="flex items-start gap-2">
+                        <span className="text-emerald-500 select-none shrink-0">›</span>
+                        <span className="text-emerald-300">{line.text}</span>
+                      </div>
+                    ) : line.type === 'err' ? (
+                      <pre className="text-red-400 whitespace-pre-wrap">{line.text}</pre>
+                    ) : (
+                      <pre className="text-[#c9d1d9] whitespace-pre-wrap">{line.text}</pre>
+                    )}
+                  </div>
                 ))}
+                {isRunning && iLines.length > 0 && (
+                  <span className="inline-block w-2 h-3.5 bg-indigo-400 animate-pulse ml-0.5 align-middle"/>
+                )}
+                {iDone && (
+                  <div className="mt-2 text-[10px] text-[#484f58] border-t border-[#21262d] pt-2">
+                    — program exited — click Stop to reset
+                  </div>
+                )}
+                <div ref={terminalEndRef}/>
               </div>
-            )}
-            {outputTab==='warnings'&&(
-              <div className="px-4 py-2.5 text-xs space-y-2" style={{fontFamily:'"JetBrains Mono", monospace',lineHeight:1.6}}>
-                {!result&&<p className="text-[#484f58] text-[11px]">Run your code to see warnings.</p>}
-                {result&&result.warnings.length===0&&<div className="flex items-center gap-2 text-emerald-400 py-4"><Check className="w-4 h-4"/>No warnings</div>}
-                {result?.warnings.map((w,i)=>(
-                  <motion.div key={i} initial={{opacity:0,x:-4}} animate={{opacity:1,x:0}} transition={{delay:i*0.04}}
-                    className="p-3 bg-amber-900/15 border border-amber-900/40 rounded-lg text-amber-300 whitespace-pre-wrap text-[11px]">{w}</motion.div>
-                ))}
+              {/* Input row */}
+              <div className="shrink-0 border-t border-[#21262d] flex items-center gap-2 px-3 py-2">
+                <span className="text-emerald-500 font-mono text-sm shrink-0">›</span>
+                <input
+                  autoFocus
+                  value={iCurrentInput}
+                  onChange={e=>setICurrentInput(e.target.value)}
+                  onKeyDown={e=>{if(e.key==='Enter'&&!isRunning&&!iDone) sendInteractiveInput();}}
+                  disabled={isRunning||iDone}
+                  placeholder={iDone?'program exited — click Stop to reset':isRunning?'waiting…':'type input and press Enter'}
+                  className="flex-1 bg-transparent text-sm text-[#c9d1d9] placeholder-[#484f58] outline-none font-mono disabled:opacity-40"
+                  style={{fontFamily:'"JetBrains Mono", monospace'}}
+                />
+                <button
+                  onClick={sendInteractiveInput}
+                  disabled={isRunning||iDone||!iCurrentInput.trim()}
+                  className="p-1.5 rounded text-indigo-400 hover:bg-indigo-600/20 disabled:opacity-30 transition-colors shrink-0"
+                  title="Send (Enter)"
+                >
+                  <CornerDownLeft className="w-4 h-4"/>
+                </button>
               </div>
-            )}
-          </div>
+            </div>
+
+          ) : (
+            /* ── Normal output tabs ── */
+            <div className="flex-1 overflow-auto custom-scrollbar min-h-0">
+              {outputTab==='output'&&(
+                <div className="h-full flex flex-col">
+                  <div className="px-4 pt-2 pb-1 flex items-center gap-2 text-[10px] text-[#484f58] font-mono border-b border-[#21262d] shrink-0">
+                    <span className="text-emerald-500">$</span>
+                    <span className="truncate">{selectedCompiler}{showFlags&&flags.active.size>0?' '+Array.from(flags.active).join(' '):''}</span>
+                  </div>
+                  <div className="flex-1 overflow-auto px-4 py-2.5 text-xs custom-scrollbar" style={{fontFamily:'"JetBrains Mono", monospace',lineHeight:1.7}}>
+                    {!result&&!isRunning&&(
+                      <div className="flex flex-col items-center justify-center h-full py-6 text-[#484f58] space-y-2">
+                        <Cpu className="w-7 h-7 opacity-20"/>
+                        <p className="text-[11px]">Click Run for batch mode · click Interactive for step-by-step</p>
+                      </div>
+                    )}
+                    {isRunning&&<div className="flex items-center gap-2 text-indigo-400"><Loader2 className="w-3 h-3 animate-spin"/>Compiling and running…</div>}
+                    {result&&(
+                      <AnimatePresence mode="wait">
+                        <motion.div key="out" initial={{opacity:0,y:3}} animate={{opacity:1,y:0}}>
+                          {result.stdout?<pre className="text-[#c9d1d9] whitespace-pre-wrap">{result.stdout}</pre>
+                            :result.exitCode===0?<span className="text-[#484f58]">(no output)</span>
+                            :<span className="text-red-400">Exited with code {result.exitCode} — check Errors tab</span>}
+                          {result.stderr&&<pre className="mt-2 text-red-400 whitespace-pre-wrap">{result.stderr}</pre>}
+                        </motion.div>
+                      </AnimatePresence>
+                    )}
+                  </div>
+                </div>
+              )}
+              {outputTab==='errors'&&(
+                <div className="px-4 py-2.5 text-xs space-y-2" style={{fontFamily:'"JetBrains Mono", monospace',lineHeight:1.6}}>
+                  {!result&&<p className="text-[#484f58] text-[11px]">Run your code to see errors.</p>}
+                  {result&&result.errors.length===0&&<div className="flex items-center gap-2 text-emerald-400 py-4"><Check className="w-4 h-4"/>No errors 🎉</div>}
+                  {result?.errors.map((err,i)=>(
+                    <motion.div key={i} initial={{opacity:0,x:-4}} animate={{opacity:1,x:0}} transition={{delay:i*0.04}}
+                      className="p-3 bg-red-900/15 border border-red-900/40 rounded-lg text-red-300 whitespace-pre-wrap text-[11px]">{err}</motion.div>
+                  ))}
+                </div>
+              )}
+              {outputTab==='warnings'&&(
+                <div className="px-4 py-2.5 text-xs space-y-2" style={{fontFamily:'"JetBrains Mono", monospace',lineHeight:1.6}}>
+                  {!result&&<p className="text-[#484f58] text-[11px]">Run your code to see warnings.</p>}
+                  {result&&result.warnings.length===0&&<div className="flex items-center gap-2 text-emerald-400 py-4"><Check className="w-4 h-4"/>No warnings</div>}
+                  {result?.warnings.map((w,i)=>(
+                    <motion.div key={i} initial={{opacity:0,x:-4}} animate={{opacity:1,x:0}} transition={{delay:i*0.04}}
+                      className="p-3 bg-amber-900/15 border border-amber-900/40 rounded-lg text-amber-300 whitespace-pre-wrap text-[11px]">{w}</motion.div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
