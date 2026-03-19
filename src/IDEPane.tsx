@@ -5,7 +5,6 @@ import {
   ChevronRight, ChevronDown, Info,
 } from 'lucide-react';
 import Editor from 'react-simple-code-editor';
-import { highlight, languages } from 'prismjs';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
@@ -430,9 +429,12 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
           <Editor
             value={activeFile.content}
             onValueChange={c => setFiles(p => p.map(f => f.id===activeFileId ? {...f,content:c} : f))}
-            highlight={code => {
-              const grammar = languages[currentLang.prismLanguage] ?? languages.clike;
-              return highlight(code, grammar, currentLang.prismLanguage);
+           highlight={code => {
+              const P = (window as any).Prism;
+              if (!P) return code;
+              const grammar = P.languages[currentLang.prismLanguage] ?? P.languages.clike;
+              if (!grammar) return code;
+              return P.highlight(code, grammar, currentLang.prismLanguage);
             }}
             padding={16}
             className="min-h-full outline-none"
