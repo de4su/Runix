@@ -2,18 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { Code2, Columns2, Square, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-import 'prismjs/components/prism-c';
-import 'prismjs/components/prism-cpp';
-import 'prismjs/components/prism-python';
-import 'prismjs/components/prism-java';
-import 'prismjs/components/prism-javascript';
-import 'prismjs/components/prism-typescript';
-import 'prismjs/components/prism-rust';
-import 'prismjs/components/prism-go';
-import 'prismjs/components/prism-ruby';
-import 'prismjs/components/prism-swift';
-import 'prismjs/components/prism-php';
-import 'prismjs/components/prism-lua';
 
 import { LanguageConfig, SupportedLanguage } from './types';
 import { fetchCompilerList, parseCompiler } from './services/compilerService';
