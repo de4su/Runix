@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Play, Plus, Trash2, FileCode, Terminal, Cpu,
   Loader2, X, AlertTriangle, Check, Copy, Clock,
-  ChevronRight, ChevronDown, Info,
+  ChevronRight, ChevronDown, Info, Upload,
 } from 'lucide-react';
 import Editor from 'react-simple-code-editor';
 import { clsx, type ClassValue } from 'clsx';
@@ -18,6 +18,16 @@ import { FLAG_PRESETS, FLAGGABLE_LANGS, GROUP_LABELS, GROUP_ORDER, presetsForLan
 
 function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 
+// Use Prism from CDN global
+function highlightCode(code: string, lang: string): string {
+  const P = (window as any).Prism;
+  if (!P) return code;
+  const grammar = P.languages[lang] ?? P.languages.clike;
+  if (!grammar) return code;
+  return P.highlight(code, grammar, lang);
+}
+
+// ─── Compiler lists ──────────────────────────────────────────────────────────
 const mkC = (name: string, displayName: string, language: string, version: string, isHead = false): WandboxCompiler =>
   ({ name, displayName, language, version, isHead });
 
@@ -73,6 +83,7 @@ const LUA_COMPILERS = [
   mkC('lua-5.4.6','Lua 5.4.6','Lua','5.4.6'), mkC('lua-5.3.6','Lua 5.3.6','Lua','5.3.6'),
 ];
 
+// ─── Default files ────────────────────────────────────────────────────────────
 const f = (id: string, name: string, content: string): CodeFile => ({ id, name, content });
 
 const DEFAULT_FILES: Record<SupportedLanguage, CodeFile[]> = {
@@ -111,23 +122,18 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
   { id:'lua',        name:'Lua',        wandboxLanguage:'Lua',        defaultCompiler:'lua-5.4.6',        extension:'.lua',   prismLanguage:'lua',        compilers:LUA_COMPILERS,  defaultFiles:DEFAULT_FILES.lua },
 ];
 
+// ─── Flag pill ────────────────────────────────────────────────────────────────
 function FlagPill({ flag, active, onToggle }: { flag: string; active: boolean; onToggle: () => void }) {
   return (
-    <button
-      onClick={onToggle}
-      title={FLAG_PRESETS.find(p => p.flag === flag)?.description ?? flag}
-      className={cn(
-        'px-2 py-0.5 rounded text-[10px] font-mono font-semibold border transition-all whitespace-nowrap',
-        active
-          ? 'bg-indigo-600/20 border-indigo-500/60 text-indigo-300 shadow-sm shadow-indigo-900/30'
-          : 'bg-[#161b22] border-[#30363d] text-[#8b949e] hover:border-[#484f58] hover:text-[#c9d1d9]'
-      )}
-    >
+    <button onClick={onToggle} title={FLAG_PRESETS.find(p => p.flag === flag)?.description ?? flag}
+      className={cn('px-2 py-0.5 rounded text-[10px] font-mono font-semibold border transition-all whitespace-nowrap',
+        active ? 'bg-indigo-600/20 border-indigo-500/60 text-indigo-300' : 'bg-[#161b22] border-[#30363d] text-[#8b949e] hover:border-[#484f58] hover:text-[#c9d1d9]')}>
       {FLAG_PRESETS.find(p => p.flag === flag)?.label ?? flag}
     </button>
   );
 }
 
+// ─── Props ────────────────────────────────────────────────────────────────────
 interface IDEPaneProps {
   paneId: string;
   liveConfigs: LanguageConfig[];
@@ -136,8 +142,13 @@ interface IDEPaneProps {
   defaultLang?: SupportedLanguage;
 }
 
-type OutputTab = 'output' | 'errors' | 'warnings' | 'stdin';
+type OutputTab = 'output' | 'errors' | 'warnings';
 
+const SIDEBAR_MIN = 180;
+const SIDEBAR_MAX = 420;
+const SIDEBAR_DEFAULT = 230;
+
+// ─── IDEPane ──────────────────────────────────────────────────────────────────
 export default function IDEPane({ paneId, liveConfigs, compilersLoading, compilersError, defaultLang = 'c' }: IDEPaneProps) {
   const initCfg = liveConfigs.find(l => l.id === defaultLang) ?? liveConfigs[0];
 
@@ -149,15 +160,27 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
   const [result, setResult]       = useState<CompilerResult | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [outputTab, setOutputTab] = useState<OutputTab>('output');
-  const [bottomPct, setBottomPct] = useState(35);
+
+  // Panel sizes
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
+  const [sidebarOpen, setSidebarOpen]   = useState(true);
+  const [bottomPct, setBottomPct]       = useState(35);
+
+  // stdin panel open/collapsed
+  const [stdinOpen, setStdinOpen] = useState(true);
+
   const [addingFile, setAddingFile] = useState(false);
   const [newFileName, setNewFileName] = useState('');
   const [copied, setCopied]       = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [flagsOpen, setFlagsOpen] = useState(true);
-
   const [flags, setFlags] = useState<CompilerFlags>({ active: new Set(['-Wall']), custom: '' });
-  const isDragging = useRef(false);
+
+  // Refs for dragging
+  const isDraggingSidebar = useRef(false);
+  const isDraggingBottom  = useRef(false);
+
+  // Hidden file input ref for importing files
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentLang = liveConfigs.find(l => l.id === selectedLangId) ?? liveConfigs[0];
   const activeFile  = files.find(f => f.id === activeFileId) ?? files[0];
@@ -178,9 +201,7 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
         next.delete(flag);
       } else {
         if (preset?.exclusive) {
-          langPresets
-            .filter(p => p.exclusive === preset.exclusive && p.flag !== flag)
-            .forEach(p => next.delete(p.flag));
+          langPresets.filter(p => p.exclusive === preset.exclusive && p.flag !== flag).forEach(p => next.delete(p.flag));
         }
         next.add(flag);
       }
@@ -225,6 +246,69 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
     }
   }, [isRunning, selectedCompiler, files, stdin, flags]);
 
+  // ── Import files from computer ──────────────────────────────────────────────
+  const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const imported = Array.from(e.target.files ?? []);
+    if (!imported.length) return;
+    imported.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const content = ev.target?.result as string;
+        // Replace existing file with same name, or add new
+        setFiles(prev => {
+          const exists = prev.find(f => f.name === file.name);
+          if (exists) {
+            return prev.map(f => f.name === file.name ? { ...f, content } : f);
+          }
+          const newFile: CodeFile = {
+            id: `${paneId}-imported-${Math.random().toString(36).slice(2)}`,
+            name: file.name,
+            content,
+          };
+          return [...prev, newFile];
+        });
+        setActiveFileId(`${paneId}-imported-${file.name}`);
+      };
+      reader.readAsText(file);
+    });
+    // Reset input so same file can be re-imported
+    e.target.value = '';
+  };
+
+  // ── Sidebar resize drag ─────────────────────────────────────────────────────
+  const onSidebarDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingSidebar.current = true;
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    const onMove = (ev: MouseEvent) => {
+      if (!isDraggingSidebar.current) return;
+      const newW = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, startW + ev.clientX - startX));
+      setSidebarWidth(newW);
+    };
+    const onUp = () => {
+      isDraggingSidebar.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
+  // ── Bottom panel resize drag ─────────────────────────────────────────────────
+  const onBottomDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingBottom.current = true;
+    const startY = e.clientY, startPct = bottomPct;
+    const onMove = (ev: MouseEvent) => {
+      if (!isDraggingBottom.current) return;
+      setBottomPct(Math.max(15, Math.min(70, startPct + ((startY - ev.clientY) / window.innerHeight) * 100)));
+    };
+    const onUp = () => { isDraggingBottom.current = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
   const confirmAddFile = () => {
     const name = newFileName.trim() || `file${currentLang.extension}`;
     if (files.some(f => f.name === name)) { alert('File already exists.'); return; }
@@ -248,31 +332,34 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
     navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
   };
 
-  const onBottomDrag = (e: React.MouseEvent) => {
-    e.preventDefault();
-    isDragging.current = true;
-    const startY = e.clientY, startPct = bottomPct;
-    const onMove = (ev: MouseEvent) => {
-      if (!isDragging.current) return;
-      setBottomPct(Math.max(15, Math.min(70, startPct + ((startY - ev.clientY) / window.innerHeight) * 100)));
-    };
-    const onUp = () => { isDragging.current = false; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  };
-
   const warnCount = result?.warnings.length ?? 0;
   const errCount  = result?.errors.length ?? 0;
 
   return (
     <div className="flex h-full min-w-0 overflow-hidden bg-[#0d1117]" style={{ fontFamily: '"Geist", sans-serif' }}>
 
+      {/* Hidden file input for importing */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleFileImport}
+      />
+
+      {/* ── Sidebar ── */}
       <AnimatePresence initial={false}>
         {sidebarOpen && (
-          <motion.aside key="sb" initial={{ width:0, opacity:0 }} animate={{ width:230, opacity:1 }} exit={{ width:0, opacity:0 }}
-            transition={{ type:'spring', stiffness:320, damping:32 }}
-            className="shrink-0 border-r border-[#21262d] bg-[#0a0e13] flex flex-col overflow-hidden">
-
+          <motion.aside
+            key="sb"
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: sidebarWidth, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+            style={{ width: sidebarWidth }}
+            className="shrink-0 border-r border-[#21262d] bg-[#0a0e13] flex flex-col overflow-hidden relative"
+          >
+            {/* Language */}
             <div className="px-3 pt-3 pb-2 border-b border-[#21262d]">
               <label className="block text-[10px] font-semibold text-[#484f58] uppercase tracking-widest mb-1.5">Language</label>
               <select value={selectedLangId} onChange={e => handleLangChange(e.target.value as SupportedLanguage)}
@@ -281,14 +368,30 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
               </select>
             </div>
 
+            {/* Files */}
             <div className="flex-1 overflow-y-auto px-2 py-1 min-h-0 border-b border-[#21262d]">
               <div className="flex items-center justify-between px-2 py-1.5">
                 <span className="text-[10px] font-semibold text-[#484f58] uppercase tracking-widest">Files</span>
-                <button onClick={() => { setAddingFile(true); setNewFileName(''); }}
-                  className="p-1 hover:bg-[#21262d] rounded text-[#8b949e] hover:text-[#c9d1d9] transition-colors">
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-0.5">
+                  {/* Import from computer */}
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Import files from your computer"
+                    className="p-1 hover:bg-[#21262d] rounded text-[#8b949e] hover:text-indigo-400 transition-colors"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                  </button>
+                  {/* New blank file */}
+                  <button
+                    onClick={() => { setAddingFile(true); setNewFileName(''); }}
+                    title="New blank file"
+                    className="p-1 hover:bg-[#21262d] rounded text-[#8b949e] hover:text-[#c9d1d9] transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
+
               <AnimatePresence>
                 {addingFile && (
                   <motion.div initial={{ opacity:0, height:0 }} animate={{ opacity:1, height:'auto' }} exit={{ opacity:0, height:0 }} className="px-1 mb-1 overflow-hidden">
@@ -303,6 +406,7 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
                   </motion.div>
                 )}
               </AnimatePresence>
+
               <div className="space-y-0.5">
                 {files.map(file => (
                   <div key={file.id} onClick={() => setActiveFileId(file.id)}
@@ -323,6 +427,7 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
               </div>
             </div>
 
+            {/* Compiler */}
             <div className="px-3 py-2 border-b border-[#21262d]">
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-[10px] font-semibold text-[#484f58] uppercase tracking-widest">Compiler</label>
@@ -339,6 +444,7 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
               )}
             </div>
 
+            {/* Compiler Flags */}
             {showFlags && (
               <div className="border-b border-[#21262d] flex flex-col min-h-0">
                 <button onClick={() => setFlagsOpen(o => !o)}
@@ -348,27 +454,25 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
                 </button>
                 <AnimatePresence initial={false}>
                   {flagsOpen && (
-                    <motion.div initial={{ height:0, opacity:0 }} animate={{ height:'auto', opacity:1 }} exit={{ height:0, opacity:0 }}
-                      transition={{ duration:0.2 }} className="overflow-hidden">
-                      <div className="px-3 pb-3 space-y-3 overflow-y-auto max-h-64">
+                    <motion.div initial={{ height:0, opacity:0 }} animate={{ height:'auto', opacity:1 }} exit={{ height:0, opacity:0 }} transition={{ duration:0.2 }} className="overflow-hidden">
+                      <div className="px-3 pb-3 space-y-3 overflow-y-auto max-h-56">
                         {flags.active.size > 0 && (
                           <div className="font-mono text-[10px] text-emerald-400/80 bg-[#0d1117] rounded px-2 py-1 break-all leading-relaxed border border-[#21262d]">
                             {Array.from(flags.active).join(' ')}{flags.custom ? ' ' + flags.custom : ''}
                           </div>
                         )}
                         {GROUP_ORDER.map(groupId => {
-                          const groupPresets = langPresets.filter(p => p.group === groupId);
-                          if (!groupPresets.length) return null;
+                          const gp = langPresets.filter(p => p.group === groupId);
+                          if (!gp.length) return null;
                           return (
                             <div key={groupId}>
                               <div className="text-[9px] font-bold text-[#484f58] uppercase tracking-widest mb-1.5">{GROUP_LABELS[groupId]}</div>
                               <div className="flex flex-wrap gap-1">
-                                {groupPresets.map(p => (
+                                {gp.map(p => (
                                   <div key={p.flag} className="relative group/tip">
                                     <FlagPill flag={p.flag} active={flags.active.has(p.flag)} onToggle={() => toggleFlag(p.flag)} />
                                     <div className="absolute left-0 bottom-full mb-1.5 z-50 hidden group-hover/tip:block w-48 bg-[#1c2128] border border-[#30363d] rounded-md px-2.5 py-2 text-[10px] text-[#c9d1d9] shadow-xl leading-relaxed pointer-events-none">
-                                      <span className="font-mono text-indigo-300 block mb-0.5">{p.flag}</span>
-                                      {p.description}
+                                      <span className="font-mono text-indigo-300 block mb-0.5">{p.flag}</span>{p.description}
                                     </div>
                                   </div>
                                 ))}
@@ -389,17 +493,55 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
               </div>
             )}
 
+            {/* stdin — always visible in sidebar */}
+            <div className="flex flex-col border-b border-[#21262d]" style={{ minHeight: stdinOpen ? 100 : 'auto' }}>
+              <button onClick={() => setStdinOpen(o => !o)}
+                className="flex items-center justify-between px-3 py-2 text-[10px] font-semibold text-[#484f58] uppercase tracking-widest hover:text-[#8b949e] transition-colors w-full shrink-0">
+                <div className="flex items-center gap-1.5">
+                  <Terminal className="w-3 h-3" />
+                  <span>stdin / input</span>
+                </div>
+                {stdinOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              </button>
+              <AnimatePresence initial={false}>
+                {stdinOpen && (
+                  <motion.div initial={{ height:0, opacity:0 }} animate={{ height:100, opacity:1 }} exit={{ height:0, opacity:0 }} transition={{ duration:0.2 }} className="overflow-hidden">
+                    <textarea
+                      value={stdin}
+                      onChange={e => setStdin(e.target.value)}
+                      placeholder={"Type program input here…\nOne value per line for multiple inputs."}
+                      spellCheck={false}
+                      className="w-full h-[100px] bg-[#0d1117] px-3 py-2 text-[11px] text-[#c9d1d9] placeholder-[#484f58] outline-none resize-none border-t border-[#21262d]"
+                      style={{ fontFamily: '"JetBrains Mono", monospace', lineHeight: 1.6 }}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
             <div className="px-3 py-2 mt-auto">
               <div className="text-[9px] text-[#484f58] flex items-center gap-1">
-                <Info className="w-2.5 h-2.5" />
-                Use the <span className="text-indigo-400 font-mono">stdin</span> tab below to feed input
+                <Info className="w-2.5 h-2.5 shrink-0" />
+                <span>Drag the right edge to resize this panel</span>
               </div>
+            </div>
+
+            {/* ── Sidebar resize handle (right edge) ── */}
+            <div
+              onMouseDown={onSidebarDragStart}
+              className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-indigo-500/50 transition-colors group z-20"
+              title="Drag to resize"
+            >
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-12 rounded-full bg-[#30363d] group-hover:bg-indigo-400 transition-colors" />
             </div>
           </motion.aside>
         )}
       </AnimatePresence>
 
+      {/* ── Main column ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+        {/* Topbar */}
         <header className="h-10 border-b border-[#21262d] bg-[#0a0e13] flex items-center justify-between px-2.5 shrink-0 gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <button onClick={() => setSidebarOpen(o => !o)}
@@ -413,7 +555,7 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
               {currentLang.name}
             </span>
             {showFlags && flags.active.size > 0 && (
-              <span className="text-[9px] font-mono text-indigo-400/70 truncate max-w-[120px] hidden sm:block" title={Array.from(flags.active).join(' ')}>
+              <span className="text-[9px] font-mono text-indigo-400/70 truncate max-w-[120px] hidden sm:block">
                 {Array.from(flags.active).join(' ')}
               </span>
             )}
@@ -425,29 +567,28 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
           </button>
         </header>
 
+        {/* Editor */}
         <div className="overflow-auto bg-[#0d1117] custom-scrollbar" style={{ height:`${100-bottomPct}%` }}>
           <Editor
             value={activeFile.content}
             onValueChange={c => setFiles(p => p.map(f => f.id===activeFileId ? {...f,content:c} : f))}
-           highlight={code => {
-              const P = (window as any).Prism;
-              if (!P) return code;
-              const grammar = P.languages[currentLang.prismLanguage] ?? P.languages.clike;
-              if (!grammar) return code;
-              return P.highlight(code, grammar, currentLang.prismLanguage);
-            }}
+            highlight={code => highlightCode(code, currentLang.prismLanguage)}
             padding={16}
             className="min-h-full outline-none"
             style={{ fontFamily:'"JetBrains Mono", monospace', fontSize:13, lineHeight:1.7 }}
           />
         </div>
 
+        {/* Bottom drag handle */}
         <div onMouseDown={onBottomDrag}
           className="h-1 border-y border-[#21262d] hover:bg-indigo-600/30 cursor-row-resize transition-colors flex items-center justify-center group shrink-0 bg-[#0d1117]">
           <div className="w-8 h-0.5 rounded-full bg-[#30363d] group-hover:bg-indigo-400 transition-colors" />
         </div>
 
+        {/* ── Output panel ── */}
         <div className="flex flex-col shrink-0 bg-[#0a0e13] overflow-hidden" style={{ height:`${bottomPct}%` }}>
+
+          {/* Tab bar */}
           <div className="h-8 border-b border-[#21262d] flex items-center px-2 gap-1 shrink-0">
             <button onClick={() => setOutputTab('output')}
               className={cn('flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all',
@@ -458,20 +599,15 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
               className={cn('flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all',
                 outputTab==='errors' ? 'bg-[#161b22] text-[#c9d1d9] border border-[#30363d]' : 'text-[#8b949e] hover:text-[#c9d1d9]')}>
               <X className="w-3 h-3" />errors
-              {errCount > 0 && <span className="bg-red-600 text-white text-[9px] font-bold px-1 rounded-full min-w-[14px] text-center">{errCount}</span>}
+              {errCount > 0 && <span className="bg-red-600 text-white text-[9px] font-bold px-1 rounded-full">{errCount}</span>}
             </button>
             <button onClick={() => setOutputTab('warnings')}
               className={cn('flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all',
                 outputTab==='warnings' ? 'bg-[#161b22] text-[#c9d1d9] border border-[#30363d]' : 'text-[#8b949e] hover:text-[#c9d1d9]')}>
               <AlertTriangle className="w-3 h-3" />warnings
-              {warnCount > 0 && <span className="bg-amber-600 text-white text-[9px] font-bold px-1 rounded-full min-w-[14px] text-center">{warnCount}</span>}
+              {warnCount > 0 && <span className="bg-amber-600 text-white text-[9px] font-bold px-1 rounded-full">{warnCount}</span>}
             </button>
-            <span className="text-[#30363d] text-xs mx-0.5">|</span>
-            <button onClick={() => setOutputTab('stdin')}
-              className={cn('flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-all',
-                outputTab==='stdin' ? 'bg-[#161b22] text-[#c9d1d9] border border-[#30363d]' : 'text-[#8b949e] hover:text-[#c9d1d9]')}>
-              <Terminal className="w-3 h-3" />stdin
-            </button>
+
             <div className="ml-auto flex items-center gap-2">
               {result && (
                 <>
@@ -497,12 +633,14 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
             </div>
           </div>
 
+          {/* Output body */}
           <div className="flex-1 overflow-auto custom-scrollbar min-h-0">
+
             {outputTab === 'output' && (
               <div className="h-full flex flex-col">
                 <div className="px-4 pt-2.5 pb-1 flex items-center gap-2 text-[10px] text-[#484f58] font-mono border-b border-[#21262d] shrink-0">
                   <span className="text-emerald-500">$</span>
-                  <span>{selectedCompiler} {Array.from(flags.active).join(' ')}</span>
+                  <span className="truncate">{selectedCompiler} {Array.from(flags.active).join(' ')}</span>
                 </div>
                 <div className="flex-1 overflow-auto px-4 py-2.5 text-xs custom-scrollbar" style={{ fontFamily:'"JetBrains Mono", monospace', lineHeight:1.7 }}>
                   {!result && !isRunning && (
@@ -565,17 +703,6 @@ export default function IDEPane({ paneId, liveConfigs, compilersLoading, compile
                   </motion.div>
                 ))}
               </div>
-            )}
-
-            {outputTab === 'stdin' && (
-              <textarea
-                value={stdin}
-                onChange={e => setStdin(e.target.value)}
-                placeholder="stdin for your program — one value per line for multiple inputs…"
-                spellCheck={false}
-                className="w-full h-full bg-transparent px-4 py-3 text-xs text-[#c9d1d9] placeholder-[#484f58] outline-none resize-none"
-                style={{ fontFamily:'"JetBrains Mono", monospace', lineHeight:1.7 }}
-              />
             )}
           </div>
         </div>
