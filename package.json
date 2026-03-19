@@ -1,5 +1,5 @@
 {
-  "name": "polycode",
+  "name": "runix",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -29,5 +29,6 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
-  }
+  },
+  "description": "Browser-based multi-language IDE. Write, compile and run code in 12 languages — no install, no API key."
 }
