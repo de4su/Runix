@@ -80,7 +80,7 @@ export default function App() {
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-900/30">
             <Code2 className="w-4 h-4 text-white" />
           </div>
-          <span className="font-semibold text-white text-sm tracking-tight">PolyCode</span>
+          <span className="font-semibold text-white text-sm tracking-tight">Runix</span>
           <span className="text-[10px] text-[#484f58] border border-[#21262d] px-1.5 py-0.5 rounded">
             Multi-Language IDE
           </span>
