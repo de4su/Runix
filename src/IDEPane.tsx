@@ -112,7 +112,7 @@ const f = (id: string, name: string, content: string): CodeFile => ({ id, name, 
 
 const DEFAULT_FILES: Record<SupportedLanguage, CodeFile[]> = {
   c: [
-    f('c-main','main.c',`#include <stdio.h>\n#include <stdlib.h>\n#include "utils.h"\n\nint main() {\n    greet("PolyCode");\n    int values[] = {3, 1, 4, 1, 5, 9, 2, 6};\n    int n = sizeof(values) / sizeof(values[0]);\n    printf("Sum: %d\\n", sum(values, n));\n    printf("Max: %d\\n", max(values, n));\n    return 0;\n}`),
+    f('c-main','main.c',`#include <stdio.h>\n#include <stdlib.h>\n#include "utils.h"\n\nint main() {\n    greet("Runix");\n    int values[] = {3, 1, 4, 1, 5, 9, 2, 6};\n    int n = sizeof(values) / sizeof(values[0]);\n    printf("Sum: %d\\n", sum(values, n));\n    printf("Max: %d\\n", max(values, n));\n    return 0;\n}`),
     f('c-utils','utils.h',`#ifndef UTILS_H\n#define UTILS_H\n#include <stdio.h>\nvoid greet(const char* name) { printf("Hello from %s!\\n", name); }\nint sum(int* arr, int n) { int t=0; for(int i=0;i<n;i++) t+=arr[i]; return t; }\nint max(int* arr, int n) { int m=arr[0]; for(int i=1;i<n;i++) if(arr[i]>m) m=arr[i]; return m; }\n#endif`),
   ],
   cpp: [
